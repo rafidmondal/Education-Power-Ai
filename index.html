@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google-site-verification" content="6FfRTIONgA3KD8jy41HK4hIFyR1H_GOXy37VhHtG6-E" />
+    <title>RX Study AI | Learn Smarter, Achieve More</title>
+    <meta name="description" content="RX Study AI is a premium educational AI workspace for chat, notes, quizzes, diagrams, documents, and smart learning tools." />
+    <meta name="keywords" content="RX Study AI, AI study companion for students, RX AI study helper, AI powered study tools, online quiz generator from text, AI homework helper free, upload document and get quiz AI, automated study notes generator, best AI chat for students, how to study smart with AI, best AI tools for school and college, AI tools for exam preparation, free AI website for students, free AI tool to generate quiz from PDF, best personal AI study assistant online, how to create custom quizzes with AI, AI notes generator, AI diagram generator, AI study app, AI quiz maker" />
+    <meta name="theme-color" content="#0b1020" />
+    <meta name="application-name" content="RX Study AI" />
+    <meta property="og:title" content="RX Study AI" />
+    <meta property="og:description" content="Learn smarter with AI chat, study notes, quizzes, diagrams, document tools, homework help, and premium academic workflows." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/web-logo.png" />
+    <meta property="og:site_name" content="RX Study AI" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RX Study AI" />
+    <meta name="twitter:description" content="Premium AI-powered study workspace for notes, quizzes, diagrams, homework help, tools, and document learning." />
+    <meta name="twitter:image" content="/web-logo.png" />
+    <link rel="icon" type="image/png" href="/web-logo.png" />
+    <link rel="apple-touch-icon" href="/web-logo.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "RX Study AI",
+        "alternateName": "RX AI Study Platform",
+        "description": "AI study companion for students with chat, notes, quizzes, diagrams, document upload, and academic tools.",
+        "url": "/",
+        "image": "/web-logo.png",
+        "keywords": [
+          "RX Study AI",
+          "AI study companion for students",
+          "AI powered study tools",
+          "online quiz generator from text",
+          "AI homework helper free",
+          "automated study notes generator",
+          "best AI chat for students",
+          "AI tools for exam preparation",
+          "free AI website for students",
+          "best personal AI study assistant online"
+        ]
+      }
+    </script>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- KaTeX CSS for Math -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+
+    <!-- PDF Reading -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script>
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+      }
+    </script>
+
+    <!-- Word Reading (docx) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+    <!-- Excel Read/Write -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <!-- CSV Parse/Write -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- HTML to PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
+
+    <!-- PDF Editing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+    <!-- File Download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <!-- ZIP Creation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Markdown to HTML -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+
+    <!-- HTML Sanitization -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js"></script>
+
+    <!-- XML to JSON -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fast-xml-parser/4.2.5/fxparser.min.js"></script>
+
+    <!-- OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
+
+    <!-- Mermaid.js for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+
+    <!-- KaTeX JS for Math -->
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
