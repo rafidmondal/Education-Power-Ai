@@ -8,6 +8,7 @@ import {
   repairQuizPayload,
   sanitizeMermaidCode,
   MODE_MODEL_ROUTING,
+  REQUEST_TIME_BUDGET_MS,
 } from "./_shared";
 
 function jsonResponse(statusCode: number, payload: unknown) {
@@ -28,6 +29,12 @@ export const handler: Handler = async (event) => {
   } catch {
     return jsonResponse(400, { error: "Invalid JSON body" });
   }
+
+  // Shared wall-clock deadline for this whole request. Every callCloudflareWorker() call
+  // below (including multi-step chains) is passed this same deadline so a slow first step
+  // can't silently eat the entire Netlify Function time budget and leave nothing for the
+  // rest of the chain — see _shared.ts for details.
+  const requestDeadline = Date.now() + REQUEST_TIME_BUDGET_MS;
 
   try {
     const { message, ocr_text, has_image, mode, history, user_profile } = requestBody;
@@ -87,7 +94,7 @@ export const handler: Handler = async (event) => {
       const promises = parallelModels.map(async (m) => {
         const modelStart = Date.now();
         const fullPrompt = `${m.sys}\n\nUser query:\n${contextPrompt}`;
-        const result = await callCloudflareWorker(fullPrompt, "triple");
+        const result = await callCloudflareWorker(fullPrompt, "triple", requestDeadline);
         const text = result.response;
         const duration = Date.now() - modelStart;
         const tokens = Math.ceil(text.length / 4);
@@ -160,14 +167,14 @@ IMPORTANT OUTPUT SAFETY:
 
 DO NOT include any markdown code blocks, conversational filler, or intro text. Just return the raw JSON object.`;
 
-      const quizResult = await callCloudflareWorker(quizPrompt, "quiz");
+      const quizResult = await callCloudflareWorker(quizPrompt, "quiz", requestDeadline);
       const text = quizResult.response;
 
       let parsedQuiz;
       try {
         parsedQuiz = parseQuizPayload(text);
       } catch (jsonErr) {
-        parsedQuiz = await repairQuizPayload(text);
+        parsedQuiz = await repairQuizPayload(text, requestDeadline);
       }
 
       return jsonResponse(200, {
@@ -205,7 +212,7 @@ CRITICAL SYNTAX RULES:
 Material to map:
 ${contextPrompt}`;
 
-      const diagramResult = await callCloudflareWorker(diagramPrompt, "diagram");
+      const diagramResult = await callCloudflareWorker(diagramPrompt, "diagram", requestDeadline);
       const text = diagramResult.response;
       let diagramCode = text.trim();
       diagramCode = sanitizeMermaidCode(diagramCode);
@@ -225,7 +232,7 @@ ${contextPrompt}`;
 
       // Agent 1: Research & Facts Gathering
       const researchPrompt = `You are the Research Agent. Extract all the key facts, formulas, major definitions, and critical conceptual building blocks on the following topic/material. Be highly accurate and list them clearly:\n\n${contextPrompt}`;
-      const factsResult = await callCloudflareWorker(researchPrompt, "notes");
+      const factsResult = await callCloudflareWorker(researchPrompt, "notes", requestDeadline);
       const facts = factsResult.response;
 
       // Agent 2: Premium Compiler & Memory Organizer
@@ -267,7 +274,7 @@ Be structured, complete, and exhaustive. Do not output plain prose or conversati
 Research facts to format and compile:
 ${facts}`;
 
-      const notesResult = await callCloudflareWorker(notesPrompt, "notes");
+      const notesResult = await callCloudflareWorker(notesPrompt, "notes", requestDeadline);
       let text = notesResult.response;
       if (autonomousToolData.imageMarkdown.length > 0 && /\b(image|photo|picture|show)\b/i.test(message || "")) {
         text += `\n\n${autonomousToolData.imageMarkdown.join("\n")}`;
@@ -307,7 +314,7 @@ Where {PROMPT} is a highly detailed, descriptive English image prompt (e.g., 'cr
 
 User query:
 ${contextPrompt}`;
-        const chatResult = await callCloudflareWorker(simplePrompt, requestMode);
+        const chatResult = await callCloudflareWorker(simplePrompt, requestMode, requestDeadline);
         finalReply = chatResult.response;
         responseModel = chatResult.model;
       } else {
@@ -319,7 +326,7 @@ Identify the language of the user's latest query (e.g., Bengali, English, Bangli
 
 User query:
 ${contextPrompt}`;
-        const reasoningResult = await callCloudflareWorker(reasoningPrompt, requestMode);
+        const reasoningResult = await callCloudflareWorker(reasoningPrompt, requestMode, requestDeadline);
         const analyticalBreakdown = reasoningResult.response;
         responseModel = reasoningResult.model;
 
@@ -340,7 +347,7 @@ Where {PROMPT} is a highly detailed, descriptive English image prompt (e.g., 'cr
 
 Analytical breakdown:
 ${analyticalBreakdown}`;
-        const tutorResult = await callCloudflareWorker(tutorPrompt, requestMode);
+        const tutorResult = await callCloudflareWorker(tutorPrompt, requestMode, requestDeadline);
         finalReply = tutorResult.response;
         responseModel = tutorResult.model;
       }

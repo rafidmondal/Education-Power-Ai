@@ -544,20 +544,49 @@ export async function gatherAutonomousToolContext(message: string, mode: Request
   };
 }
 
+// Netlify Functions run on a hard wall-clock limit (10s on the free tier, higher on
+// paid plans). The original fetch call to the Cloudflare Worker had NO timeout at all,
+// so if a model backend ever hung or was slow, the request just sat there until Netlify
+// force-killed the whole function — which produces an empty/opaque failure on the client
+// ("Api error") instead of a real error message, and can also hand back a half-written
+// response (which is what caused the intermittent "Invalid Mermaid.js syntax" errors too).
+// Bounding every attempt with an abortable timeout means a slow/stuck model fails fast and
+// falls through to the next candidate in MODE_MODEL_ROUTING well within the function's
+// time budget, instead of silently eating the whole request.
+const CLOUDFLARE_ATTEMPT_TIMEOUT_MS = Number(process.env.CLOUDFLARE_ATTEMPT_TIMEOUT_MS) || 7000;
+// Soft overall budget per callCloudflareWorker() invocation when no shared request
+// deadline is passed in (see REQUEST_TIME_BUDGET_MS below).
+const CLOUDFLARE_TOTAL_BUDGET_MS = Number(process.env.CLOUDFLARE_TOTAL_BUDGET_MS) || 9000;
+// Whole-request time budget, shared across every callCloudflareWorker() call a single
+// /api/chat invocation makes (including multi-step chains like reasoning+tutor,
+// research+notes, and quiz+repair). Netlify's free tier hard-kills a function at 10s;
+// this keeps us under that with a safety margin, and hands back a clean JSON error
+// instead of letting the platform kill the function mid-response.
+export const REQUEST_TIME_BUDGET_MS = Number(process.env.REQUEST_TIME_BUDGET_MS) || 9000;
+
 // Low-level helper to communicate with Cloudflare Worker API
-export async function callCloudflareWorkerOnce(message: string, model: string = ""): Promise<string> {
+export async function callCloudflareWorkerOnce(message: string, model: string = "", timeoutMs: number = CLOUDFLARE_ATTEMPT_TIMEOUT_MS): Promise<string> {
   const payload = {
     message: message,
     model: model === "auto" ? "" : model,
   };
 
-  const response = await fetch("https://api.101010101.workers.dev/rx_chat_txt", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.101010101.workers.dev/rx_chat_txt", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error: any) {
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+      throw new Error(`Cloudflare API request timed out after ${timeoutMs}ms for model "${model}"`);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -572,14 +601,26 @@ export async function callCloudflareWorkerOnce(message: string, model: string = 
   }
 }
 
-// Mode-wise model router with automatic fallback retries
-export async function callCloudflareWorker(message: string, mode: RequestMode): Promise<{ response: string; model: string }> {
+// Mode-wise model router with automatic fallback retries.
+// `deadlineAt` (an absolute Date.now()-style timestamp) is optional: pass the same
+// deadline into every callCloudflareWorker() call within one /api/chat request so
+// multi-step chains (e.g. research -> notes, reasoning -> tutor, quiz -> repair) share
+// one overall time budget instead of each independently trying for the full window.
+export async function callCloudflareWorker(message: string, mode: RequestMode, deadlineAt?: number): Promise<{ response: string; model: string }> {
   const modelsToTry = expandModelCandidates(MODE_MODEL_ROUTING[mode] || MODE_MODEL_ROUTING.single);
   let lastError: unknown = null;
+  const effectiveDeadline = deadlineAt ?? (Date.now() + CLOUDFLARE_TOTAL_BUDGET_MS);
 
   for (const candidateModel of modelsToTry) {
+    const remainingBudget = effectiveDeadline - Date.now();
+    if (remainingBudget <= 500) {
+      // Not enough time left in the budget to safely try another candidate — stop here
+      // and fail cleanly rather than risking a platform-level timeout kill.
+      break;
+    }
+
     try {
-      const response = await callCloudflareWorkerOnce(message, candidateModel);
+      const response = await callCloudflareWorkerOnce(message, candidateModel, Math.min(CLOUDFLARE_ATTEMPT_TIMEOUT_MS, remainingBudget));
       return { response, model: candidateModel };
     } catch (error) {
       lastError = error;
@@ -756,7 +797,7 @@ export function parseQuizPayload(text: string) {
   throw lastError instanceof Error ? lastError : new Error("Unable to parse quiz JSON.");
 }
 
-export async function repairQuizPayload(text: string) {
+export async function repairQuizPayload(text: string, deadlineAt?: number) {
   const repairPrompt = `Convert the malformed quiz output below into strict valid JSON only.
 
 Rules:
@@ -780,7 +821,7 @@ Rules:
 Malformed quiz output:
 ${sanitizeJsonLikeText(text)}`;
 
-  const repairResult = await callCloudflareWorker(repairPrompt, "quiz");
+  const repairResult = await callCloudflareWorker(repairPrompt, "quiz", deadlineAt);
   return parseQuizPayload(repairResult.response);
 }
 
