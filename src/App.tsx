@@ -393,7 +393,7 @@ export default function App() {
       const errMsg: Message = {
         id: `msg_${Date.now()}_err`,
         role: "system",
-        content: `⚠️ API Connection Failure: ${err.message || "Failed to make handshakes with the AI server."}`,
+        content: `⚠️ Server problem, please wait and try again.`,
         timestamp: new Date().toISOString(),
         mode: targetMode
       };

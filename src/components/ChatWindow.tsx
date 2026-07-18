@@ -642,7 +642,6 @@ export default function ChatWindow(props: ChatWindowProps) {
                     <div key={msg.id} className="animate-fade py-2">
                       <NotesView
                         content={msg.content}
-                        modelName={msg.model}
                         timestamp={msg.timestamp}
                         actionId={msg.id}
                         onCopyText={handleCopy}

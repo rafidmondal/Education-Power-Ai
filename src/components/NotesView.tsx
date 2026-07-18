@@ -238,11 +238,6 @@ export default function NotesView({
           <div>
             <h4 className="text-xs font-bold text-white tracking-wide flex items-center gap-1.5">
               Structured Study Notes
-              {modelName && (
-                <span className={`text-[9px] font-mono font-medium uppercase bg-white/5 px-2 py-0.5 rounded border border-white/10 ${theme.textAccent}`}>
-                  {modelName}
-                </span>
-              )}
             </h4>
             <p className="text-[9px] text-text-secondary mt-0.5">
               {timestamp ? new Date(timestamp).toLocaleTimeString() : "Just now"} • Interactive Notebook

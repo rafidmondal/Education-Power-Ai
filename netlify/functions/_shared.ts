@@ -53,6 +53,7 @@ export const MODE_MODEL_ROUTING: Record<RequestMode, string[]> = {
     "llama-3.3-70b-versatile",
   ],
   triple: [
+    "qwen/qwen3-32b",
     "mistralai/mistral-large-3-675b-instruct-2512",
     "qwen/qwen3-next-80b-a3b-instruct:free",
     "google/gemma-4-26b-a4b-it:free",
@@ -590,7 +591,9 @@ export async function callCloudflareWorkerOnce(message: string, model: string = 
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Cloudflare API connection failed (${response.status}): ${text || "Unknown"}`);
+    const err: any = new Error(`Cloudflare API connection failed (${response.status}): ${text || "Unknown"}`);
+    if (response.status === 429) err.rateLimited = true;
+    throw err;
   }
 
   const data = await response.json();
@@ -610,6 +613,7 @@ export async function callCloudflareWorker(message: string, mode: RequestMode, d
   const modelsToTry = expandModelCandidates(MODE_MODEL_ROUTING[mode] || MODE_MODEL_ROUTING.single);
   let lastError: unknown = null;
   const effectiveDeadline = deadlineAt ?? (Date.now() + CLOUDFLARE_TOTAL_BUDGET_MS);
+  let sawRateLimit = false;
 
   for (const candidateModel of modelsToTry) {
     const remainingBudget = effectiveDeadline - Date.now();
@@ -622,9 +626,33 @@ export async function callCloudflareWorker(message: string, mode: RequestMode, d
     try {
       const response = await callCloudflareWorkerOnce(message, candidateModel, Math.min(CLOUDFLARE_ATTEMPT_TIMEOUT_MS, remainingBudget));
       return { response, model: candidateModel };
-    } catch (error) {
+    } catch (error: any) {
       lastError = error;
+      if (error?.rateLimited) sawRateLimit = true;
       console.warn(`[Cloudflare:${mode}] Model failed: ${candidateModel} -> ${formatErrorMessage(error)}`);
+    }
+  }
+
+  // The "works on the first request, fails on the very next one" pattern is almost always
+  // the upstream free Cloudflare Worker briefly rate-limiting this IP/model right after a
+  // request — switching model candidates doesn't help since the throttle isn't per-model.
+  // A short cooldown + one retry pass usually clears it, as long as the shared request
+  // deadline still has room.
+  if (sawRateLimit) {
+    const remainingBudget = effectiveDeadline - Date.now();
+    if (remainingBudget > 2500) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      for (const candidateModel of modelsToTry) {
+        const retryRemaining = effectiveDeadline - Date.now();
+        if (retryRemaining <= 500) break;
+        try {
+          const response = await callCloudflareWorkerOnce(message, candidateModel, Math.min(CLOUDFLARE_ATTEMPT_TIMEOUT_MS, retryRemaining));
+          return { response, model: candidateModel };
+        } catch (error) {
+          lastError = error;
+          console.warn(`[Cloudflare:${mode}] Retry after cooldown failed: ${candidateModel} -> ${formatErrorMessage(error)}`);
+        }
+      }
     }
   }
 
