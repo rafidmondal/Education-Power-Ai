@@ -1,0 +1,33 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Keep the same request URLs the frontend already calls (/api/chat, /api/voice,
+# /api/health) by rewriting them to the equivalent Netlify Function.
+[[redirects]]
+  from = "/api/chat"
+  to = "/.netlify/functions/chat"
+  status = 200
+
+[[redirects]]
+  from = "/api/voice"
+  to = "/.netlify/functions/voice"
+  status = 200
+
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+
+# SPA fallback — must stay last so it doesn't swallow the /api/* redirects above.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
