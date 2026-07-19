@@ -7,7 +7,6 @@ import {
   parseQuizPayload,
   repairQuizPayload,
   sanitizeMermaidCode,
-  MODE_MODEL_ROUTING,
   REQUEST_TIME_BUDGET_MS,
 } from "./_shared";
 
@@ -296,7 +295,7 @@ ${facts}`;
       const isSimple = message && (message.trim().length < 30 && !message.match(/(solve|explain|how to|why|calculate|derive|physics|chemistry|math|code|program|function|react)/i));
 
       let finalReply = "";
-      let responseModel = MODE_MODEL_ROUTING[requestMode][0];
+      let responseModel = "auto";
       if (isSimple) {
         // Simple chat or greeting - 1 agent call to minimize latency
         const simplePrompt = `You are RX AI Study Platform, an advanced chat tutor.

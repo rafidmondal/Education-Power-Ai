@@ -22,56 +22,8 @@ export type UserProfilePayload = {
   language?: "en" | "bn" | "hi";
 };
 
-export const MODEL_VARIANTS: Record<string, string[]> = {
-  "llama-3.3-70b-versatile": ["llama-3.3-70b-versatile", "llama-3.3-70b"],
-  "qwen/qwen3-32b": ["qwen/qwen3-32b", "qwen3-32b"],
-  "moonshotai/kimi-k2.6": ["moonshotai/kimi-k2.6"],
-  "mistralai/mistral-large-3-675b-instruct-2512": ["mistralai/mistral-large-3-675b-instruct-2512", "mistral-large-3"],
-  "google/gemma-4-26b-a4b-it:free": ["google/gemma-4-26b-a4b-it:free", "google/google/gemma-4-26b-a4b-it:free"],
-  "llama-3.1-8b-instant": ["llama-3.1-8b", "llama-3.1-8b-instant"],
-  "ministral-8b-latest": ["ministral-8b", "ministral-8b-latest"],
-  "qwen/qwen3-next-80b-a3b-instruct:free": ["qwen3-next-80b-a3b-instruct", "qwen/qwen3-next-80b-a3b-instruct:free"],
-};
-
-export const MODE_MODEL_ROUTING: Record<RequestMode, string[]> = {
-  single: [
-    "llama-3.3-70b-versatile",
-    "qwen/qwen3-32b",
-  ],
-  notes: [
-    "moonshotai/kimi-k2.6",
-    "mistralai/mistral-large-3-675b-instruct-2512",
-  ],
-  quiz: [
-    "google/gemma-4-26b-a4b-it:free",
-    "llama-3.1-8b-instant",
-    "ministral-8b-latest",
-  ],
-  diagram: [
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "qwen/qwen3-32b",
-    "llama-3.3-70b-versatile",
-  ],
-  triple: [
-    "qwen/qwen3-32b",
-    "mistralai/mistral-large-3-675b-instruct-2512",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "google/gemma-4-26b-a4b-it:free",
-  ],
-};
-
-export function expandModelCandidates(models: string[]): string[] {
-  const expanded: string[] = [];
-  for (const model of models) {
-    const variants = MODEL_VARIANTS[model] || [model];
-    for (const variant of variants) {
-      if (!expanded.includes(variant)) {
-        expanded.push(variant);
-      }
-    }
-  }
-  return expanded;
-}
+// NOTE: primary model choice per mode lives in MODE_MODEL_ROUTING below, right next to
+// the Cloudflare Worker calling logic that uses it.
 
 export function normalizeRequestMode(mode: unknown): RequestMode {
   if (mode === "triple" || mode === "quiz" || mode === "diagram" || mode === "notes") {
@@ -551,112 +503,141 @@ export async function gatherAutonomousToolContext(message: string, mode: Request
 // force-killed the whole function — which produces an empty/opaque failure on the client
 // ("Api error") instead of a real error message, and can also hand back a half-written
 // response (which is what caused the intermittent "Invalid Mermaid.js syntax" errors too).
-// Bounding every attempt with an abortable timeout means a slow/stuck model fails fast and
-// falls through to the next candidate in MODE_MODEL_ROUTING well within the function's
-// time budget, instead of silently eating the whole request.
-const CLOUDFLARE_ATTEMPT_TIMEOUT_MS = Number(process.env.CLOUDFLARE_ATTEMPT_TIMEOUT_MS) || 7000;
-// Soft overall budget per callCloudflareWorker() invocation when no shared request
-// deadline is passed in (see REQUEST_TIME_BUDGET_MS below).
-const CLOUDFLARE_TOTAL_BUDGET_MS = Number(process.env.CLOUDFLARE_TOTAL_BUDGET_MS) || 9000;
-// Whole-request time budget, shared across every callCloudflareWorker() call a single
-// /api/chat invocation makes (including multi-step chains like reasoning+tutor,
-// research+notes, and quiz+repair). Netlify's free tier hard-kills a function at 10s;
-// this keeps us under that with a safety margin, and hands back a clean JSON error
-// instead of letting the platform kill the function mid-response.
+// Bounding every attempt with an abortable timeout means a slow/stuck attempt fails fast
+// and a retry gets a chance well within the function's time budget, instead of silently
+// eating the whole request.
+//
+// The Worker exposes two relevant endpoints (see worker.js):
+//   POST /rx_chat_txt           — pick a specific model via `model`, provider-level fallback only
+//   POST /text_only_high_speed  — no `model` needed, sweeps its own small→big list of 30+ models
+//
+// Strategy: try the mode's preferred model on /rx_chat_txt first (fast, tuned per mode).
+// If that fails for any reason, fall back to /text_only_high_speed, which does a full
+// sweep server-side — so we don't have to maintain our own multi-model fallback list here.
+const CLOUDFLARE_BASE = "https://api.101010101.workers.dev";
+const CLOUDFLARE_PRIMARY_ENDPOINT = `${CLOUDFLARE_BASE}/rx_chat_txt`;
+const CLOUDFLARE_SWEEP_ENDPOINT = `${CLOUDFLARE_BASE}/text_only_high_speed`;
+
+// Primary (fast) attempt: capped at 6.8s, so it can never eat the whole request budget.
+const PRIMARY_ATTEMPT_TIMEOUT_MS = Number(process.env.CLOUDFLARE_PRIMARY_TIMEOUT_MS) || 6800;
+// Fallback (sweep) attempt: no fixed cap — it just gets whatever's left of the shared
+// request deadline below, since the Worker's own sweep already bounds each of its
+// internal attempts (8.5s normal / 3s for deprecated models).
 export const REQUEST_TIME_BUDGET_MS = Number(process.env.REQUEST_TIME_BUDGET_MS) || 9000;
 
-// Low-level helper to communicate with Cloudflare Worker API
-export async function callCloudflareWorkerOnce(message: string, model: string = "", timeoutMs: number = CLOUDFLARE_ATTEMPT_TIMEOUT_MS): Promise<string> {
-  const payload = {
-    message: message,
-    model: model === "auto" ? "" : model,
-  };
+// Preferred "fast" model per mode for the /rx_chat_txt primary attempt. Picked from the
+// Worker's currently-live (non-deprecated) models — see worker.js's DEPRECATED_MODELS set.
+export const MODE_MODEL_ROUTING: Record<RequestMode, string> = {
+  single: "openai/gpt-oss-20b",              // groq — fastest live model, good for plain chat
+  notes: "qwen/qwen3.6-27b",                  // groq — solid quality for structured notes
+  quiz: "google/gemma-4-26b-a4b-it:free",     // openrouter — proven 100% reliable in testing
+  diagram: "qwen/qwen3-next-80b-a3b-instruct:free", // openrouter — stronger reasoning for correct Mermaid syntax
+  triple: "qwen/qwen3.6-27b",                 // groq — live replacement for the retired qwen3-32b
+};
 
+// Low-level helper for the primary /rx_chat_txt attempt (specific model requested)
+async function callCloudflarePrimary(message: string, model: string, timeoutMs: number): Promise<{ response: string; model: string }> {
   let response: Response;
   try {
-    response = await fetch("https://api.101010101.workers.dev/rx_chat_txt", {
+    response = await fetch(CLOUDFLARE_PRIMARY_ENDPOINT, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, model }),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error: any) {
     if (error?.name === "TimeoutError" || error?.name === "AbortError") {
-      throw new Error(`Cloudflare API request timed out after ${timeoutMs}ms for model "${model}"`);
+      throw new Error(`Cloudflare primary request timed out after ${timeoutMs}ms (model: ${model})`);
     }
     throw error;
   }
 
   if (!response.ok) {
     const text = await response.text();
-    const err: any = new Error(`Cloudflare API connection failed (${response.status}): ${text || "Unknown"}`);
+    const err: any = new Error(`Cloudflare primary connection failed (${response.status}): ${text || "Unknown"}`);
     if (response.status === 429) err.rateLimited = true;
     throw err;
   }
 
   const data = await response.json();
   if (data && data.success) {
-    return data.response;
+    return { response: data.response, model: data.model || data.provider || model };
   } else {
-    throw new Error(data?.error || JSON.stringify(data?.errors) || "Failed to retrieve a valid AI response from the cloud network.");
+    const errText = Array.isArray(data?.errors) ? data.errors.join(" | ") : data?.error;
+    throw new Error(errText || "Primary model returned no valid response.");
   }
 }
 
-// Mode-wise model router with automatic fallback retries.
+// Low-level helper for the fallback /text_only_high_speed sweep (no model — Worker decides)
+async function callCloudflareSweep(message: string, timeoutMs: number): Promise<{ response: string; model: string }> {
+  let response: Response;
+  try {
+    response = await fetch(CLOUDFLARE_SWEEP_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error: any) {
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+      throw new Error(`Cloudflare sweep request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Cloudflare sweep connection failed (${response.status}): ${text || "Unknown"}`);
+  }
+
+  const data = await response.json();
+  if (data && data.success) {
+    return { response: data.response, model: data.model || data.provider || "auto" };
+  } else {
+    const errText = Array.isArray(data?.errors) ? data.errors.join(" | ") : data?.error;
+    throw new Error(errText || "Sweep endpoint returned no valid response.");
+  }
+}
+
 // `deadlineAt` (an absolute Date.now()-style timestamp) is optional: pass the same
 // deadline into every callCloudflareWorker() call within one /api/chat request so
 // multi-step chains (e.g. research -> notes, reasoning -> tutor, quiz -> repair) share
 // one overall time budget instead of each independently trying for the full window.
 export async function callCloudflareWorker(message: string, mode: RequestMode, deadlineAt?: number): Promise<{ response: string; model: string }> {
-  const modelsToTry = expandModelCandidates(MODE_MODEL_ROUTING[mode] || MODE_MODEL_ROUTING.single);
+  const effectiveDeadline = deadlineAt ?? (Date.now() + REQUEST_TIME_BUDGET_MS);
+  const primaryModel = MODE_MODEL_ROUTING[mode] || MODE_MODEL_ROUTING.single;
   let lastError: unknown = null;
-  const effectiveDeadline = deadlineAt ?? (Date.now() + CLOUDFLARE_TOTAL_BUDGET_MS);
-  let sawRateLimit = false;
 
-  for (const candidateModel of modelsToTry) {
-    const remainingBudget = effectiveDeadline - Date.now();
-    if (remainingBudget <= 500) {
-      // Not enough time left in the budget to safely try another candidate — stop here
-      // and fail cleanly rather than risking a platform-level timeout kill.
-      break;
-    }
-
+  let remainingBudget = effectiveDeadline - Date.now();
+  if (remainingBudget > 500) {
     try {
-      const response = await callCloudflareWorkerOnce(message, candidateModel, Math.min(CLOUDFLARE_ATTEMPT_TIMEOUT_MS, remainingBudget));
-      return { response, model: candidateModel };
+      return await callCloudflarePrimary(message, primaryModel, Math.min(PRIMARY_ATTEMPT_TIMEOUT_MS, remainingBudget));
     } catch (error: any) {
       lastError = error;
-      if (error?.rateLimited) sawRateLimit = true;
-      console.warn(`[Cloudflare:${mode}] Model failed: ${candidateModel} -> ${formatErrorMessage(error)}`);
-    }
-  }
-
-  // The "works on the first request, fails on the very next one" pattern is almost always
-  // the upstream free Cloudflare Worker briefly rate-limiting this IP/model right after a
-  // request — switching model candidates doesn't help since the throttle isn't per-model.
-  // A short cooldown + one retry pass usually clears it, as long as the shared request
-  // deadline still has room.
-  if (sawRateLimit) {
-    const remainingBudget = effectiveDeadline - Date.now();
-    if (remainingBudget > 2500) {
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      for (const candidateModel of modelsToTry) {
-        const retryRemaining = effectiveDeadline - Date.now();
-        if (retryRemaining <= 500) break;
-        try {
-          const response = await callCloudflareWorkerOnce(message, candidateModel, Math.min(CLOUDFLARE_ATTEMPT_TIMEOUT_MS, retryRemaining));
-          return { response, model: candidateModel };
-        } catch (error) {
-          lastError = error;
-          console.warn(`[Cloudflare:${mode}] Retry after cooldown failed: ${candidateModel} -> ${formatErrorMessage(error)}`);
+      console.warn(`[Cloudflare:${mode}] Primary (${primaryModel}) failed -> ${formatErrorMessage(error)}`);
+      if (error?.rateLimited) {
+        remainingBudget = effectiveDeadline - Date.now();
+        if (remainingBudget > 1200) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
     }
   }
 
-  throw new Error(`All configured models failed for ${mode}. Last error: ${formatErrorMessage(lastError)}`);
+  // Fallback: let the Worker's own /text_only_high_speed sweep pick a working model from
+  // its full list. It gets whatever's left of the shared deadline — no fixed cap here,
+  // since a hardcoded timeout would either waste headroom or cut off a near-success.
+  remainingBudget = effectiveDeadline - Date.now();
+  if (remainingBudget > 500) {
+    try {
+      return await callCloudflareSweep(message, remainingBudget);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[Cloudflare:${mode}] Sweep fallback failed -> ${formatErrorMessage(error)}`);
+    }
+  }
+
+  throw new Error(`AI gateway failed for ${mode}. Last error: ${formatErrorMessage(lastError)}`);
 }
 
 export function stripMarkdownCodeFence(text: string): string {
