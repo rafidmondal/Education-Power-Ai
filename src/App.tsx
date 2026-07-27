@@ -21,7 +21,13 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState("auto");
   const [activeMode, setActiveMode] = useState<"single" | "triple" | "quiz" | "diagram" | "notes">("single");
   const [levelUpMessage, setLevelUpMessage] = useState<string | null>(null);
-  const [showAdSlot, setShowAdSlot] = useState(true);
+  const [showAdSlot, setShowAdSlot] = useState(() => {
+    try {
+      return localStorage.getItem("ads_closed") !== "1";
+    } catch {
+      return true;
+    }
+  });
   const adContainerRef = useRef<HTMLDivElement | null>(null);
   
   // Premium 5-Tab Routing & Sub-Routing
@@ -480,7 +486,7 @@ export default function App() {
 
   if (!userPrefs) {
     return (
-      <div className="h-screen w-screen bg-[#080811] flex items-center justify-center text-xs text-text-secondary select-none">
+      <div className="h-dvh w-screen bg-[#080811] flex items-center justify-center text-xs text-text-secondary select-none">
         Booting RX Educational Command Center...
       </div>
     );
@@ -490,7 +496,7 @@ export default function App() {
   const xpPercent = Math.min(100, Math.floor((userPrefs.xp / xpNeeded) * 100));
 
   return (
-    <div className={`h-screen w-screen bg-transparent text-text-primary overflow-hidden flex flex-col md:flex-row font-sans select-none text-${userPrefs.font_size}`}>
+    <div className={`h-dvh w-screen bg-transparent text-text-primary overflow-hidden flex flex-col md:flex-row font-sans select-none text-${userPrefs.font_size}`}>
       
       {/* Sidebar Navigation (Desktop-Only) */}
       <div className="hidden md:flex flex-col w-72 glass-panel border-r border-white/8 h-full select-none justify-between shrink-0">
@@ -500,7 +506,7 @@ export default function App() {
             <img
               src="/web-logo.png"
               alt="RX Study AI logo"
-              className="w-14 h-14 object-contain"
+              className="w-14 h-14 object-contain rounded-xl"
             />
             <div>
               <h1 className="text-white font-bold text-md font-display tracking-tight leading-none">RX Study AI</h1>
@@ -612,11 +618,13 @@ export default function App() {
               {/* Profile Bar / Quick Stat Heading */}
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <img
-                    src="/web-logo.png"
-                    alt="RX Study AI"
-                    className="w-[270px] max-w-full object-contain"
-                  />
+                  <div className="w-[270px] max-w-full rounded-3xl overflow-hidden border border-white/8 shadow-lg">
+                    <img
+                      src="/web-logo.png"
+                      alt="RX Study AI"
+                      className="w-full h-auto object-contain rounded-3xl"
+                    />
+                  </div>
                   <p className="text-xs text-text-secondary mt-2">Welcome back! Ready to learn?</p>
                 </div>
                 
@@ -992,7 +1000,7 @@ export default function App() {
         </div>
 
         {/* Navigation Bar (Mobile-Only bottom nav - Screen 02 style) */}
-        <div className="md:hidden h-16 border-t border-white/5 glass-panel flex items-center justify-around shrink-0 select-none pb-safe">
+        <div className="md:hidden h-14 border-t border-white/5 glass-panel flex items-center justify-around shrink-0 select-none pb-safe">
           <button
             onClick={() => setActiveTab("home")}
             className={`flex flex-col items-center gap-1 flex-1 py-1 transition-all ${
@@ -1073,16 +1081,25 @@ export default function App() {
       )}
 
       {showAdSlot && (
-        <div className="fixed bottom-20 right-3 md:bottom-5 md:right-5 z-40 hidden sm:flex flex-col items-end gap-2">
+        <div className="fixed bottom-20 right-2 z-40 flex flex-col items-end gap-1.5 max-w-[92vw]">
           <button
-            onClick={() => setShowAdSlot(false)}
-            className="glass-soft rounded-full px-2 py-1 text-[10px] text-text-secondary hover:text-white transition-colors"
+            onClick={() => {
+              setShowAdSlot(false);
+              try {
+                localStorage.setItem("ads_closed", "1");
+              } catch {
+                /* ignore storage errors */
+              }
+            }}
+            aria-label="Close ads"
+            className="glass-soft flex items-center gap-1 rounded-full pl-2 pr-2.5 py-1 text-[10px] text-text-secondary hover:text-white transition-colors"
           >
-            Hide Ad
+            <X className="w-3 h-3" />
+            Close Ads
           </button>
-          <div className="glass-panel rounded-2xl px-2 py-2">
+          <div className="glass-panel rounded-2xl px-2 py-2 overflow-hidden">
             <p className="pb-1 text-center text-[9px] font-mono uppercase tracking-[0.22em] text-text-muted">Sponsored</p>
-            <div ref={adContainerRef} style={{ width: 320, minHeight: 50 }} />
+            <div ref={adContainerRef} style={{ width: 320, height: 50, maxWidth: "100%" }} />
           </div>
         </div>
       )}

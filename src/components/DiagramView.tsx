@@ -149,6 +149,10 @@ export default function DiagramView({
         theme: "dark",
         securityLevel: "loose",
         logLevel: 5,
+        // Mermaid v10.3+ : stops it from injecting its own "bomb icon / Syntax error
+        // in text" error graphic into the DOM on failure. We show our own clean error
+        // box instead (see the catch block below) — the native one should never appear.
+        suppressErrorRendering: true,
       });
 
       // Sanitize the code before rendering
@@ -159,10 +163,17 @@ export default function DiagramView({
       setSvgHtml(svg);
     } catch (err: any) {
       console.warn("Mermaid Render Error", err);
-      // Try to clean up any error rendering tags inserted by Mermaid
+      // Belt-and-suspenders cleanup: even with suppressErrorRendering enabled above,
+      // remove any stray "bomb icon" error graphic Mermaid may have appended directly
+      // to <body> (it uses ids like "dmermaid-render-12345" or "mermaid-render-12345").
       const badTag = document.getElementById("d" + err.id);
       if (badTag) badTag.remove();
-      
+      document.querySelectorAll('[id^="dmermaid-render-"], [id^="mermaid-render-"]').forEach((el) => {
+        if (!containerRef.current || !containerRef.current.contains(el)) {
+          el.remove();
+        }
+      });
+
       setError("Invalid Mermaid.js syntax. Please verify connections, nodes, and arrow declarations.");
     }
   };
