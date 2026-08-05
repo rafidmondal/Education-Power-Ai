@@ -513,17 +513,19 @@ export default function ChatWindow(props: ChatWindowProps) {
 
             {visibleQuizMessage?.metadata?.quiz_data ? (
               <>
-                <QuizView
-                  quizData={visibleQuizMessage.metadata.quiz_data}
-                  onQuizCompleted={onQuizCompleted}
-                  userPrefs={userPrefs}
-                  actionId={visibleQuizMessage.id}
-                  onCopyText={handleCopy}
-                  onPlayVoice={handlePlayVoice}
-                  copiedId={copiedId}
-                  playingMessageId={playingMessageId}
-                  loadingVoiceId={loadingVoiceId}
-                />
+                <div key={visibleQuizMessage.id}>
+                  <QuizView
+                    quizData={visibleQuizMessage.metadata.quiz_data}
+                    onQuizCompleted={onQuizCompleted}
+                    userPrefs={userPrefs}
+                    actionId={visibleQuizMessage.id}
+                    onCopyText={handleCopy}
+                    onPlayVoice={handlePlayVoice}
+                    copiedId={copiedId}
+                    playingMessageId={playingMessageId}
+                    loadingVoiceId={loadingVoiceId}
+                  />
+                </div>
 
                 <div className="flex justify-center">
                   <button
